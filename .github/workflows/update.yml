@@ -73,13 +73,6 @@ jobs:
           git commit -m "데이터 업데이트 $(date -u +%Y-%m-%d)" || echo "변경 없음"
           git push
  
-      # (선택) Hugging Face 정적 Space에도 같은 화면을 올림
-      # Secrets에 HF_TOKEN(쓰기 권한), HF_SPACE(예: 아이디/journal-duration)를 넣었을 때만 실행
-      - name: Hugging Face Space 동기화
-        if: ${{ env.HF_TOKEN != '' && env.HF_SPACE != '' }}
-        run: |
-          python -c "import os; from huggingface_hub import HfApi; HfApi(token=os.environ['HF_TOKEN']).upload_folder(folder_path='docs', repo_id=os.environ['HF_SPACE'], repo_type='space', commit_message='데이터 업데이트')"
- 
       # Pages 배포 (Settings → Pages → Source: "GitHub Actions")
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
@@ -87,4 +80,27 @@ jobs:
           path: docs
       - id: deploy
         uses: actions/deploy-pages@v4
+ 
+      # (선택) Hugging Face 정적 Space에도 같은 화면을 올림
+      # Secrets에 HF_TOKEN(Write 권한), HF_SPACE(예: 아이디/journal-duration)를 넣었을 때만 실행
+      # 실패해도 전체 작업은 실패로 처리하지 않음 (Pages 배포는 이미 끝난 뒤)
+      - name: Hugging Face Space 동기화
+        if: ${{ env.HF_TOKEN != '' && env.HF_SPACE != '' }}
+        continue-on-error: true
+        run: |
+          python - <<'PY'
+          import os, re
+          from huggingface_hub import HfApi
+          space = os.environ["HF_SPACE"].strip()
+          # 주소 전체를 넣은 경우도 처리: https://huggingface.co/spaces/아이디/이름 → 아이디/이름
+          space = re.sub(r"^(https?://)?(www\.)?huggingface\.co/", "", space)
+          space = re.sub(r"^spaces/", "", space).strip("/")
+          api = HfApi(token=os.environ["HF_TOKEN"].strip())
+          print("토큰 사용자:", api.whoami().get("name"))
+          print("대상 Space:", space)
+          api.upload_folder(folder_path="docs", repo_id=space, repo_type="space",
+                            commit_message="데이터 업데이트")
+          print("완료")
+          PY
+ 
  
