@@ -11,7 +11,7 @@ import time
 import pandas as pd
 
 from . import config as C
-from .journals import load_journals
+from .journals import load_all_journals
 from .ncbi import NCBIClient
 from .parse import parse_pubmed_xml
 
@@ -37,7 +37,7 @@ def load_cache():
 
 def run(client=None, journals=None, today=None, log=print):
     client = client or NCBIClient(C.NCBI_API_KEY, C.NCBI_EMAIL, C.NCBI_TOOL)
-    journals = journals if journals is not None else load_journals(C.INPUT_JOURNALS)
+    journals = journals if journals is not None else load_all_journals(C.INPUT_JOURNALS, C.INPUT_APC)
     if C.LIMIT_JOURNALS:
         journals = journals.head(C.LIMIT_JOURNALS)
     today = today or dt.date.today()
@@ -68,7 +68,11 @@ def run(client=None, journals=None, today=None, log=print):
     new_ids = [p for p in current if p not in known]
     log(f"현재 표본 {len(current):,}편 중 신규 {len(new_ids):,}편 상세 조회")
     fetched = []
+    budget = C.COLLECT_BUDGET_MIN * 60
     for b in range(0, len(new_ids), C.EFETCH_BATCH):
+        if budget and time.time() - t0 > budget:
+            log(f"  ⏱ 시간 한도({C.COLLECT_BUDGET_MIN}분) 도달 → 남은 {len(new_ids) - b:,}편은 다음 실행에서 이어서 수집")
+            break
         batch = new_ids[b:b + C.EFETCH_BATCH]
         try:
             rows = parse_pubmed_xml(client.efetch_pubmed_xml(batch))

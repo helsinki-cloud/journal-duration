@@ -11,6 +11,7 @@ let view = [], shown = PAGE, sortKey = null, sortAsc = true, inputOrder = false;
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const normIssn = (s) => { const t = s.replace(/[^0-9Xx]/g, "").toUpperCase(); return t.length === 8 ? `${t.slice(0, 4)}-${t.slice(4)}` : null; };
 const norm = (s) => String(s || "").toLowerCase().replace(/\s+/g, " ").trim();
+const fmt = (n) => (n ?? 0).toLocaleString("ko-KR");
 
 async function init() {
   try {
@@ -22,21 +23,38 @@ async function init() {
     return;
   }
   for (const j of DATA) {
-    j._t = norm(j.title); j._a = norm(j.abbrev);
-    for (const k of [j.issn, j.eissn]) if (k) BY_ISSN.set(k, j);
+    j._t = norm(j.title); j._a = norm(j.abbrev); j._p = norm(j.publisher);
+    for (const k of [j.issn, j.eissn]) if (k && !BY_ISSN.has(k)) BY_ISSN.set(k, j);
   }
-  $("#updated").textContent = META.generated_at
-    ? `업데이트 ${META.generated_at} · 저널 ${fmt(META.n_journals)}종 (출판 기간 산출 ${fmt(META.n_with_stats)}종)`
-    : "아직 수집된 데이터가 없습니다.";
+  if (META.generated_at) {
+    $("#updated").textContent = `업데이트 ${META.generated_at}`;
+    $("#coverage").textContent =
+      `수록 저널 ${fmt(META.n_journals)}종 (PMC 참여 ${fmt(META.n_pmc)} · APC 지원 목록 전용 ${fmt(META.n_apc_only)}) · ` +
+      `출판 기간 산출 ${fmt(META.n_with_stats)}종 · 전남대 APC 지원 일치 ${fmt(META.n_apc_matched)}종`;
+    if (META.n_checked != null && META.n_checked < META.n_journals) {
+      $("#partial").textContent = `⚠️ 아직 전체 수집 전입니다. PubMed 조회를 마친 저널은 ${fmt(META.n_checked)} / ${fmt(META.n_journals)}종이며, ` +
+        `나머지 저널은 ‘수집 전’으로 표시됩니다. (APC 지원 여부는 수집과 관계없이 모두 표시됩니다)`;
+      $("#partial").classList.remove("hidden");
+    }
+  } else {
+    $("#updated").textContent = "아직 수집된 데이터가 없습니다.";
+  }
   document.querySelectorAll(".m-max").forEach((e) => (e.textContent = META.max_per_journal ?? "N"));
-  document.querySelectorAll(".m-n").forEach((e) => (e.textContent = fmt(META.n_journals)));
   document.querySelectorAll(".m-days").forEach((e) => (e.textContent = META.lookback_days ?? "N"));
 
   let timer;
   $("#q").addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(run, 200); });
-  ["#f-apc", "#f-max", "#f-min", "#f-rel"].forEach((s) => $(s).addEventListener("input", run));
-  $("#reset").onclick = () => { $("#q").value = ""; $("#f-apc").checked = false; $("#f-max").value = ""; $("#f-min").value = ""; $("#f-rel").value = ""; sortKey = null; run(); };
+  ["#f-apc", "#f-has", "#f-max", "#f-min", "#f-rel"].forEach((s) => $(s).addEventListener("input", run));
+  $("#reset").onclick = () => {
+    $("#q").value = ""; ["#f-apc", "#f-has"].forEach((s) => ($(s).checked = false));
+    ["#f-max", "#f-min", "#f-rel"].forEach((s) => ($(s).value = ""));
+    sortKey = null; run();
+  };
+  document.querySelectorAll(".ex").forEach((b) => b.addEventListener("click", () => {
+    $("#q").value = b.dataset.q; $("#f-apc").checked = b.dataset.apc === "1"; sortKey = null; run();
+  }));
   $("#more").onclick = () => { shown += PAGE; render(); };
+  document.querySelectorAll(".tip").forEach((t) => t.addEventListener("click", (e) => e.stopPropagation()));
   document.querySelectorAll("th[data-k]").forEach((th) => th.addEventListener("click", () => {
     const k = th.dataset.k;
     if (sortKey === k) sortAsc = !sortAsc; else { sortKey = k; sortAsc = true; }
@@ -44,8 +62,6 @@ async function init() {
   }));
   run();
 }
-
-const fmt = (n) => (n ?? 0).toLocaleString("ko-KR");
 
 function search(q) {
   const missing = [];
@@ -63,25 +79,36 @@ function search(q) {
     }
     return { list, missing, mode: "issn" };
   }
-  // 저널명/약어 (쉼표·세미콜론·줄바꿈으로 여러 개)
+  // 저널명·약어·출판사 (쉼표·세미콜론·줄바꿈으로 여러 개)
   const parts = q.split(/[,;\n]+/).map(norm).filter(Boolean);
   const list = [], seen = new Set();
   for (const p of parts) {
-    const k = ISSN_RE.test(p.replace(/\s/g, "")) ? normIssn(p) : null;
-    if (k) { const j = BY_ISSN.get(k); if (j && !seen.has(j)) { list.push(j); seen.add(j); } else if (!j) missing.push(k); continue; }
-    const exact = DATA.filter((j) => j._t === p || j._a === p);
-    const partial = DATA.filter((j) => (j._t.includes(p) || j._a.includes(p)) && !exact.includes(j));
-    if (!exact.length && !partial.length) missing.push(p);
-    for (const j of [...exact, ...partial]) if (!seen.has(j)) { list.push(j); seen.add(j); }
+    const compact = p.replace(/\s/g, "");
+    if (ISSN_RE.test(compact)) {
+      const k = normIssn(compact), j = BY_ISSN.get(k);
+      if (j && !seen.has(j)) { list.push(j); seen.add(j); } else if (!j) missing.push(k);
+      continue;
+    }
+    // 우선순위: 저널명·약어 완전일치 → 저널명·약어 부분일치 → 출판사 일치
+    const exact = [], partial = [], pub = [];
+    for (const j of DATA) {
+      if (j._t === p || j._a === p) exact.push(j);
+      else if (j._t.includes(p) || j._a.includes(p)) partial.push(j);
+      else if (j._p.includes(p)) pub.push(j);
+    }
+    if (!exact.length && !partial.length && !pub.length) missing.push(p);
+    for (const j of [...exact, ...partial, ...pub]) if (!seen.has(j)) { list.push(j); seen.add(j); }
   }
   return { list, missing, mode: parts.length > 1 ? "multi" : "name" };
 }
 
 function applyFilters(list) {
-  const apc = $("#f-apc").checked, max = +$("#f-max").value || null, min = +$("#f-min").value || null, rel = $("#f-rel").value;
+  const apc = $("#f-apc").checked, has = $("#f-has").checked;
+  const max = +$("#f-max").value || null, min = +$("#f-min").value || null, rel = $("#f-rel").value;
   return list.filter((j) => {
     const m = j.rec_acc?.median;
     if (apc && !j.apc) return false;
+    if (has && m == null) return false;
     if (max && !(m != null && m <= max)) return false;
     if (min && !(m != null && m >= min)) return false;
     if (rel === "보통" && !["보통", "높음"].includes(j.reliability)) return false;
@@ -91,9 +118,9 @@ function applyFilters(list) {
 }
 
 const KEYS = {
-  title: (j) => j._t, issn: (j) => j.issn || j.eissn, publisher: (j) => norm(j.publisher) || null,
+  title: (j) => j._t, issn: (j) => j.issn || j.eissn || null, publisher: (j) => j._p || null,
   median: (j) => j.rec_acc?.median ?? null, pubmed: (j) => j.acc_pub?.median ?? null,
-  n: (j) => j.rec_acc?.n ?? 0, latest: (j) => j.latest_accepted || null, apc: (j) => (j.apc ? 0 : 1),
+  n: (j) => j.rec_acc?.n ?? null, latest: (j) => j.latest_accepted || null, apc: (j) => (j.apc ? 0 : 1),
 };
 
 function sortView() {
@@ -112,24 +139,37 @@ function run() {
   const { list, missing, mode } = search($("#q").value);
   view = applyFilters(list);
   inputOrder = (mode === "issn" || mode === "multi") && !sortKey;
-  if (mode === "all" && !sortKey) { sortKey = "median"; sortAsc = true; }
+  if ((mode === "all" || mode === "name") && !sortKey) { sortKey = "median"; sortAsc = true; }
   sortView(); shown = PAGE;
 
+  const q = $("#q").value.trim();
   const conds = [];
-  if ($("#q").value.trim()) conds.push(mode === "issn" ? `ISSN ${missing.length + view.length}건 조회` : `검색어 “${esc($("#q").value.trim().slice(0, 60))}”`);
+  if (q) conds.push(mode === "issn" ? `ISSN ${missing.length + list.length}건 조회` : `검색어 “${esc(q.slice(0, 60))}”`);
   if ($("#f-apc").checked) conds.push("전남대 APC 지원 목록 일치");
+  if ($("#f-has").checked) conds.push("출판 기간 있음");
   if ($("#f-max").value) conds.push(`투고→승인 중앙값 ${esc($("#f-max").value)}일 이내`);
   if ($("#f-min").value) conds.push(`${esc($("#f-min").value)}일 미만 제외`);
   if ($("#f-rel").value) conds.push(`신뢰도 ${esc($("#f-rel").value)} 이상`);
+  const withStats = view.filter((j) => j.rec_acc).length;
   const hidden = list.length - view.length;
   $("#summary").innerHTML = `${conds.length ? conds.join(" · ") + " → " : "전체 저널 → "}💡 <b>${fmt(view.length)}</b>개 저널` +
-    (hidden > 0 && $("#q").value.trim() ? ` <span class="rel" style="display:inline">(검색되었지만 필터 조건으로 숨겨진 저널 ${fmt(hidden)}개)</span>` : "");
+    ` <span class="muted">(이 중 출판 기간 있음 ${fmt(withStats)}개)</span>` +
+    (hidden > 0 && q ? ` <span class="muted">· 검색되었지만 필터로 숨겨진 저널 ${fmt(hidden)}개</span>` : "");
   $("#missing").innerHTML = missing.map((m) =>
-    `<p class="warn">⚠️ ${esc(m)}은(는) 현재 출판 기간 데이터베이스에 등록되어 있지 않습니다.</p>`).join("");
+    `<p class="warn">⚠️ ${esc(m)}은(는) 현재 데이터베이스(PMC 참여 저널 + 전남대 APC 지원 저널)에 등록되어 있지 않습니다.</p>`).join("");
   render();
 }
 
-function cellDays(s) { return s ? `${s.median}일` : '<span class="na">-</span>'; }
+const NA = '<span class="na">-</span>';
+
+function nCell(j) {
+  const ra = j.rec_acc;
+  if (j.error) return '<span class="na">조회 오류</span>';
+  if (!j.checked) return '<span class="na">수집 전</span>';
+  if (!j.n_sampled) return '<span class="na">PubMed 기록 없음</span>';
+  if (!ra) return `0<span class="rel">/ 수집 ${j.n_sampled}편 · 날짜 미제공</span>`;
+  return `${ra.n}<span class="rel">/ 수집 ${j.n_sampled}편</span>`;
+}
 
 function render() {
   document.querySelectorAll("th[data-k]").forEach((th) => {
@@ -142,18 +182,15 @@ function render() {
     const issn = [j.issn, j.eissn].filter(Boolean).map(esc).join("<br>");
     const apc = j.apc ? '<span class="badge b-yes">💡 지원 목록 일치</span>'
                       : '<span class="badge b-no">목록에서 확인되지 않음</span>';
-    const nCell = j.n_sampled
-      ? `${ra ? ra.n : 0}<span class="rel">/ 수집 ${j.n_sampled}편</span>`
-      : `<span class="na">${j.error ? "조회 오류" : "0"}</span>`;
     return `<tr>
       <td>${esc(j.title)}${j.abbrev ? `<span class="abbr">${esc(j.abbrev)}</span>` : ""}</td>
-      <td>${issn || '<span class="na">-</span>'}</td>
-      <td>${esc(j.publisher) || '<span class="na">-</span>'}</td>
-      <td class="r"><b>${cellDays(ra)}</b>${rel}</td>
-      <td class="r">${ra ? `${ra.q1}~${ra.q3}일` : '<span class="na">-</span>'}</td>
-      <td class="r">${cellDays(j.acc_pub)}</td>
-      <td class="r">${nCell}</td>
-      <td>${esc(j.latest_accepted) || '<span class="na">-</span>'}</td>
+      <td>${issn || NA}</td>
+      <td>${esc(j.publisher) || NA}</td>
+      <td class="r">${ra ? `<b>${ra.median}일</b>` : NA}${rel}</td>
+      <td class="r">${ra ? `${ra.q1}~${ra.q3}일` : NA}</td>
+      <td class="r">${j.acc_pub ? `${j.acc_pub.median}일` : NA}</td>
+      <td class="r">${nCell(j)}</td>
+      <td>${esc(j.latest_accepted) || NA}</td>
       <td>${apc}</td></tr>`;
   });
   $("#tbl tbody").innerHTML = rows.join("") ||
