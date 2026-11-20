@@ -142,6 +142,13 @@ HF 공식 문서상 Gradio/Docker(Streamlit 포함) Space는 유료 플랜이 �
 3. 자동 업데이트: HF Settings → Access Tokens에서 Write 토큰 발급 →
    GitHub Secrets에 `HF_TOKEN`(토큰), `HF_SPACE`(예: `아이디/journal-duration`) 등록 → 매주 자동 동기화
 
+## 4-8. 수집 대상 (v2.1)
+- PMC 저널 목록 중 **Agreement Status = Active** 저널 (약 3,285종)
+- + **전남대 APC 지원 목록에만 있는 저널** (PMC 목록과 ISSN·정확한 저널명이 겹치지 않는 약 2,093종)
+- PubMed는 PMC보다 범위가 넓어 PMCID가 없어도 PubMed에 실린 저널이면 출판 기간이 계산됩니다.
+  PubMed에 실리지 않는 분야(경영·인문 등)는 "PubMed 기록 없음"으로 표시되고 APC 지원 여부만 보입니다.
+- 한 번 실행의 수집 시간은 최대 270분(`COLLECT_BUDGET_MIN`). 넘으면 저장 후 멈추고, 다음 실행에서 이어서 수집합니다.
+
 ## 5. 출판 기간 계산 방법 (연구자 안내용)
 
 1. **표본**: 저널별로 PubMed 등록일 기준 최근 730일 이내 논문 중 최신 100편.

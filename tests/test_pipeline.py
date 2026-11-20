@@ -11,7 +11,7 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from pipeline import aggregate, collect, config as C  # noqa: E402
-from pipeline.journals import load_journals, load_table  # noqa: E402
+from pipeline.journals import load_all_journals, load_journals, load_table  # noqa: E402
 from pipeline.parse import normalize_issn, parse_pubmed_xml  # noqa: E402
 
 
@@ -127,6 +127,15 @@ def test_end_to_end():
         data = json.loads(C.OUTPUT_JSON.read_text(encoding="utf-8"))
         assert data["meta"]["n_apc_matched"] == 1
         assert pd.read_csv(C.OUTPUT_CSV, encoding="utf-8-sig").shape[0] == 3
+        # PMC 목록 + APC 전용 저널 합치기: Journal A는 겹침(ISSN), Journal Bee는 APC에만 있음
+        allj = load_all_journals(tmp / "journals.csv", tmp / "apc.csv")
+        assert len(allj) == 4 and list(allj["source"]) == ["PMC", "PMC", "PMC", "APC"]
+        assert allj.iloc[3]["jid"] == "9999-9999"
+        meta, out = aggregate.run(journals=allj, apc=apc, articles=arts, status=st)
+        assert meta["n_apc_only"] == 1 and meta["n_apc_matched"] == 2
+        bee = out[3]
+        assert bee["apc"] and bee["source"] == "APC" and bee["checked"] is False and bee["rec_acc"] is None
+        json.loads(C.OUTPUT_JSON.read_text(encoding="utf-8"))
         return data
 
 
