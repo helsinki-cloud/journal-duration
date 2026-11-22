@@ -1,18 +1,18 @@
 "use strict";
 /* 저널 출판 기간 & APC 지원 안내 — 정적 웹 (서버 불필요) */
-
+ 
 const PAGE = 200;
 const ISSN_RE = /^\d{4}-?\d{3}[\dXx]$/;
 const $ = (s) => document.querySelector(s);
-
+ 
 let DATA = [], META = {}, BY_ISSN = new Map();
 let view = [], shown = PAGE, sortKey = null, sortAsc = true, inputOrder = false;
-
+ 
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const normIssn = (s) => { const t = s.replace(/[^0-9Xx]/g, "").toUpperCase(); return t.length === 8 ? `${t.slice(0, 4)}-${t.slice(4)}` : null; };
 const norm = (s) => String(s || "").toLowerCase().replace(/\s+/g, " ").trim();
 const fmt = (n) => (n ?? 0).toLocaleString("ko-KR");
-
+ 
 async function init() {
   try {
     const res = await fetch("data/journals.json", { cache: "no-cache" });
@@ -41,13 +41,14 @@ async function init() {
   }
   document.querySelectorAll(".m-max").forEach((e) => (e.textContent = META.max_per_journal ?? "N"));
   document.querySelectorAll(".m-days").forEach((e) => (e.textContent = META.lookback_days ?? "N"));
-
+ 
   let timer;
   $("#q").addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(run, 200); });
-  ["#f-apc", "#f-has", "#f-max", "#f-min", "#f-rel"].forEach((s) => $(s).addEventListener("input", run));
+  ["#f-apc", "#f-has", "#f-basis", "#f-max", "#f-min", "#f-rel"].forEach((s) => $(s).addEventListener("input", run));
   $("#reset").onclick = () => {
     $("#q").value = ""; ["#f-apc", "#f-has"].forEach((s) => ($(s).checked = false));
     ["#f-max", "#f-min", "#f-rel"].forEach((s) => ($(s).value = ""));
+    $("#f-basis").value = "rec_acc";
     sortKey = null; run();
   };
   document.querySelectorAll(".ex").forEach((b) => b.addEventListener("click", () => {
@@ -62,13 +63,13 @@ async function init() {
   }));
   run();
 }
-
+ 
 function search(q) {
   const missing = [];
   q = q.trim();
   $("#notice-abstract").classList.toggle("hidden", !(q.length > 400 && q.split(/\s+/).length > 50));
   if (!q || q.length > 400) return { list: DATA.slice(), missing, mode: "all" };
-
+ 
   const tokens = q.split(/[\s,;]+/).filter(Boolean);
   if (tokens.every((t) => ISSN_RE.test(t))) {           // ISSN만 입력
     const list = [], seen = new Set();
@@ -101,12 +102,13 @@ function search(q) {
   }
   return { list, missing, mode: parts.length > 1 ? "multi" : "name" };
 }
-
+ 
 function applyFilters(list) {
   const apc = $("#f-apc").checked, has = $("#f-has").checked;
   const max = +$("#f-max").value || null, min = +$("#f-min").value || null, rel = $("#f-rel").value;
+  const basis = $("#f-basis").value;               // 기간 필터 기준: rec_acc(투고→승인) / rec_pub(투고→게재)
   return list.filter((j) => {
-    const m = j.rec_acc?.median;
+    const m = j[basis]?.median;
     if (apc && !j.apc) return false;
     if (has && m == null) return false;
     if (max && !(m != null && m <= max)) return false;
@@ -116,13 +118,14 @@ function applyFilters(list) {
     return true;
   });
 }
-
+ 
 const KEYS = {
   title: (j) => j._t, issn: (j) => j.issn || j.eissn || null, publisher: (j) => j._p || null,
   median: (j) => j.rec_acc?.median ?? null, pubmed: (j) => j.acc_pub?.median ?? null,
+  total: (j) => j.rec_pub?.median ?? null,
   n: (j) => j.rec_acc?.n ?? null, latest: (j) => j.latest_accepted || null, apc: (j) => (j.apc ? 0 : 1),
 };
-
+ 
 function sortView() {
   if (inputOrder || !sortKey) return;
   const f = KEYS[sortKey], dir = sortAsc ? 1 : -1;
@@ -134,21 +137,22 @@ function sortView() {
     return (x < y ? -1 : x > y ? 1 : 0) * dir;
   });
 }
-
+ 
 function run() {
   const { list, missing, mode } = search($("#q").value);
   view = applyFilters(list);
   inputOrder = (mode === "issn" || mode === "multi") && !sortKey;
   if ((mode === "all" || mode === "name") && !sortKey) { sortKey = "median"; sortAsc = true; }
   sortView(); shown = PAGE;
-
+ 
   const q = $("#q").value.trim();
   const conds = [];
   if (q) conds.push(mode === "issn" ? `ISSN ${missing.length + list.length}건 조회` : `검색어 “${esc(q.slice(0, 60))}”`);
   if ($("#f-apc").checked) conds.push("전남대 APC 지원 목록 일치");
-  if ($("#f-has").checked) conds.push("출판 기간 있음");
-  if ($("#f-max").value) conds.push(`투고→승인 중앙값 ${esc($("#f-max").value)}일 이내`);
-  if ($("#f-min").value) conds.push(`${esc($("#f-min").value)}일 미만 제외`);
+  if ($("#f-has").checked) conds.push(`${basisLabel} 기간 있음`);
+  const basisLabel = $("#f-basis").value === "rec_pub" ? "투고→게재(총)" : "투고→승인";
+  if ($("#f-max").value) conds.push(`${basisLabel} 중앙값 ${esc($("#f-max").value)}일 이내`);
+  if ($("#f-min").value) conds.push(`${basisLabel} ${esc($("#f-min").value)}일 미만 제외`);
   if ($("#f-rel").value) conds.push(`신뢰도 ${esc($("#f-rel").value)} 이상`);
   const withStats = view.filter((j) => j.rec_acc).length;
   const hidden = list.length - view.length;
@@ -159,9 +163,9 @@ function run() {
     `<p class="warn">⚠️ ${esc(m)}은(는) 현재 데이터베이스(PMC 참여 저널 + 전남대 APC 지원 저널)에 등록되어 있지 않습니다.</p>`).join("");
   render();
 }
-
+ 
 const NA = '<span class="na">-</span>';
-
+ 
 function nCell(j) {
   const ra = j.rec_acc;
   if (j.error) return '<span class="na">조회 오류</span>';
@@ -170,7 +174,7 @@ function nCell(j) {
   if (!ra) return `0<span class="rel">/ 수집 ${j.n_sampled}편 · 날짜 미제공</span>`;
   return `${ra.n}<span class="rel">/ 수집 ${j.n_sampled}편</span>`;
 }
-
+ 
 function render() {
   document.querySelectorAll("th[data-k]").forEach((th) => {
     th.classList.toggle("sorted", th.dataset.k === sortKey && !inputOrder);
@@ -187,8 +191,8 @@ function render() {
       <td>${issn || NA}</td>
       <td>${esc(j.publisher) || NA}</td>
       <td class="r">${ra ? `<b>${ra.median}일</b>` : NA}${rel}</td>
-      <td class="r">${ra ? `${ra.q1}~${ra.q3}일` : NA}</td>
       <td class="r">${j.acc_pub ? `${j.acc_pub.median}일` : NA}</td>
+      <td class="r">${j.rec_pub ? `<b>${j.rec_pub.median}일</b>` : NA}</td>
       <td class="r">${nCell(j)}</td>
       <td>${esc(j.latest_accepted) || NA}</td>
       <td>${apc}</td></tr>`;
@@ -198,5 +202,6 @@ function render() {
   $("#more").classList.toggle("hidden", view.length <= shown);
   $("#more").textContent = `더 보기 (${fmt(Math.min(shown, view.length))} / ${fmt(view.length)})`;
 }
-
+ 
 init();
+ 
