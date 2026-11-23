@@ -1,111 +1,85 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>🎓 저널 출판 기간 &amp; APC 지원 안내</title>
-<link rel="stylesheet" href="style.css">
-</head>
-<body>
-<header>
-  <h1>🎓 저널 출판 기간 &amp; APC 지원 안내</h1>
-  <p class="sub">전남대학교병원 의학도서실 · PubMed 투고/승인일 기반 · <span id="updated">데이터 불러오는 중…</span></p>
-  <p class="sub" id="coverage"></p>
-</header>
- 
-<main>
-  <p id="partial" class="banner hidden"></p>
- 
-  <section class="search">
-    <label for="q">저널명 · 약어 · ISSN · 출판사 (여러 개는 쉼표/줄바꿈/세미콜론으로 구분)</label>
-    <textarea id="q" rows="2" placeholder="예) 2190-572X, 2374-7943   ·   PLOS ONE; ACS Omega   ·   Wiley"></textarea>
-    <div class="examples">검색 예시:
-      <button type="button" class="ex" data-q="2190-572X, 2374-7943">2190-572X, 2374-7943 <small>(ISSN 비교)</small></button>
-      <button type="button" class="ex" data-q="PLOS ONE; ACS Omega; Scientific Reports">PLOS ONE; ACS Omega; Scientific Reports <small>(저널명)</small></button>
-      <button type="button" class="ex" data-q="Wiley">Wiley <small>(출판사)</small></button>
-      <button type="button" class="ex" data-q="Karger" data-apc="1">Karger + APC 지원만</button>
-    </div>
-    <div class="filters">
-      <label><input type="checkbox" id="f-apc"> 전남대 APC 지원 목록 일치만</label>
-      <label><input type="checkbox" id="f-has"> 출판 기간 있는 저널만</label>
-      <label>기준
-        <select id="f-basis">
-          <option value="rec_acc">투고→승인</option>
-          <option value="rec_pub">투고→게재(총)</option>
-        </select>
-        중앙값 <input type="number" id="f-max" min="1" placeholder="예: 90" class="num"> 일 이내</label>
-      <label><input type="number" id="f-min" min="0" placeholder="10" class="num"> 일 미만 제외</label>
-      <label>신뢰도
-        <select id="f-rel">
-          <option value="">전체</option>
-          <option value="보통">보통 이상 (10편+)</option>
-          <option value="높음">높음 (30편+)</option>
-        </select>
-      </label>
-      <button id="reset" type="button">초기화</button>
-      <a id="dl" href="data/journals.csv" download>전체 데이터 CSV 받기</a>
-    </div>
-  </section>
- 
-  <details class="legend" open>
-    <summary>표 읽는 법 (용어 설명)</summary>
-    <dl>
-      <dt>투고→승인 중앙값</dt><dd>최근 논문들이 투고(received)부터 게재 승인(accepted)까지 걸린 일수를 줄 세웠을 때 <b>한가운데 값</b>. 평균보다 극단값 영향을 덜 받습니다.</dd>
-      <dt>승인→게재 중앙값</dt><dd>승인 후 온라인에 실리기(Epub)까지 걸린 일수의 중앙값.</dd>
-      <dt>투고→게재(총) 중앙값</dt><dd>논문마다 투고일부터 온라인 게재일까지 걸린 전체 일수를 구한 뒤의 중앙값. 각각 따로 구한 한가운데 값이라 앞의 두 중앙값을 더한 값과 조금 다를 수 있습니다.</dd>
-      <dt>산출 논문 수</dt><dd>기간 계산에 쓰인 논문 수 / PubMed에서 수집한 최근 논문 수. 출판사가 투고·승인일을 PubMed에 제공하지 않으면 수집은 돼도 계산은 0편입니다.</dd>
-      <dt>신뢰도</dt><dd>산출 논문 수 기준. <b>높음</b> 30편 이상 · <b>보통</b> 10~29편 · <b>낮음</b> 1~9편(참고만).</dd>
-      <dt>7일 미만 N편</dt><dd>투고 후 7일 안에 승인된 논문 수. 다른 저널에서 이관되었거나 초청 논문일 수 있어 따로 표시합니다.</dd>
-      <dt>전남대 APC</dt><dd>ISSN 또는 정확한 저널명이 전남대 APC 지원 목록과 일치할 때만 ‘지원 목록 일치’로 표시합니다.</dd>
-    </dl>
-  </details>
- 
-  <section id="notice-abstract" class="callout warnbox hidden">
-    본 도구는 저널의 출판 기간 및 APC 지원 여부 검색 전문 도구입니다. 초록 기반의 논문 투고 추천은
-    <b>S2Journal 서비스</b>를 이용해 주세요. 👉
-    <a href="https://cnuh.futurenuri.co.kr/bbs/content/1_384" target="_blank" rel="noopener">S2Journal 저널선택서비스 바로가기</a><br>
-    S2Journal에서 추천받은 저널의 <b>ISSN 또는 저널명</b>을 입력하시면 출판 기간과 APC 지원 여부를 비교해 드립니다.
-  </section>
- 
-  <section>
-    <p id="summary" class="summary"></p>
-    <div id="missing"></div>
-    <div class="table-wrap">
-      <table id="tbl">
-        <thead>
-          <tr>
-            <th data-k="title">저널명</th>
-            <th data-k="issn">ISSN</th>
-            <th data-k="publisher">출판사</th>
-            <th data-k="median" class="r">투고→승인<br>중앙값 <span class="tip" tabindex="0" data-tip="투고일부터 승인일까지 걸린 일수의 한가운데 값 (최근 논문 기준)">?</span></th>
-            <th data-k="pubmed" class="r">승인→게재<br>중앙값 <span class="tip" tabindex="0" data-tip="승인 후 온라인 게재(Epub)까지 걸린 일수의 중앙값">?</span></th>
-            <th data-k="total" class="r">투고→게재<br>(총) 중앙값 <span class="tip" tabindex="0" data-tip="논문별 투고일~온라인 게재일 전체 일수의 중앙값. 두 중앙값의 단순 합과는 조금 다를 수 있음">?</span></th>
-            <th data-k="n" class="r">산출<br>논문 수 <span class="tip tip-left" tabindex="0" data-tip="계산에 쓰인 논문 수 / 수집한 최근 논문 수. 신뢰도: 30편+ 높음, 10~29 보통, 1~9 낮음">?</span></th>
-            <th data-k="latest">최근 승인일 <span class="tip tip-left" tabindex="0" data-tip="수집한 논문 중 가장 최근에 승인된 날짜 (데이터가 얼마나 최신인지)">?</span></th>
-            <th data-k="apc">전남대 APC <span class="tip tip-left" tabindex="0" data-tip="ISSN 또는 정확한 저널명이 지원 목록과 일치할 때만 표시. 출판사가 같다는 이유로 추정하지 않음">?</span></th>
-          </tr>
-        </thead>
-        <tbody></tbody>
-      </table>
-    </div>
-    <div class="pager"><button id="more" type="button" class="hidden">더 보기</button></div>
-  </section>
- 
-  <section class="callout guide">
-    <b>💡 필수 안내사항</b>
-    <ol>
-      <li><b>출판 기간 산출 방식</b> — 저널별로 최근 <span class="m-max">N</span>편(최근 <span class="m-days">N</span>일 이내 PubMed 등록, 리뷰·사설·레터 등 제외)의
-        투고일·승인일·온라인 게재일로 <b>중앙값</b>을 계산합니다. 날짜는 출판사가 PubMed에 제공한 값이며,
-        제공하지 않는 저널은 값이 비어 있습니다. 산출 논문 수가 적을수록(신뢰도 ‘낮음’) 참고 정도로만 보세요.</li>
-      <li><b>데이터베이스 범위</b> — PubMed Central(PMC) 참여 저널과 전남대 APC 지원 저널을 합친 목록을 PubMed에서 조회합니다.
-        PubMed에 실리지 않는 분야(경영·인문 등)의 저널은 출판 기간 없이 APC 지원 여부만 표시됩니다.
-        본 데이터는 투고 참고용이며, 정확한 안내는 <b>의학도서실</b>로 문의해 주세요.</li>
-      <li><b>전남대학교 APC 지원</b> — 지원 사업은 선착순 예산 소진 및 출판사별 쿼터제로 운영될 수 있으니 반드시
-        <a href="https://lib.jnu.ac.kr/webcontent/info/31" target="_blank" rel="noopener">전남대학교 도서관 APC 지원 안내</a>에서 확인하세요.</li>
-    </ol>
-  </section>
-</main>
-<script src="app.js"></script>
-</body>
-</html>
- 
+"""(선택) Streamlit 버전 — 정적 웹과 같은 docs/data/journals.json 을 읽습니다.
+실행: streamlit run streamlit_app.py
+
+Copyright (c) 2026 나대식 (Na Dae-sik). All rights reserved. — LICENSE 참고
+"""
+import json
+import re
+from pathlib import Path
+
+import pandas as pd
+import streamlit as st
+
+DATA = Path(__file__).parent / "docs" / "data" / "journals.json"
+ISSN_RE = re.compile(r"^\d{4}-?\d{3}[\dXx]$")
+
+st.set_page_config(page_title="저널 출판 기간 & APC 지원 안내", page_icon="🎓", layout="wide")
+
+
+@st.cache_data
+def load():
+    d = json.loads(DATA.read_text(encoding="utf-8"))
+    rows = []
+    for j in d["journals"]:
+        ra, ap, rp = j.get("rec_acc") or {}, j.get("acc_pub") or {}, j.get("rec_pub") or {}
+        rows.append({
+            "저널명": j["title"], "약어": j["abbrev"], "ISSN": j["issn"], "eISSN": j["eissn"],
+            "출판사": j["publisher"], "투고→승인 중앙값(일)": ra.get("median"),
+            "승인→게재 중앙값(일)": ap.get("median"), "투고→게재(총) 중앙값(일)": rp.get("median"),
+            "산출 논문 수": ra.get("n", 0), "신뢰도": j["reliability"],
+            "최근 승인일": j["latest_accepted"],
+            "전남대 APC": "💡 지원 목록 일치" if j["apc"] else "목록에서 확인되지 않음",
+        })
+    return d["meta"], pd.DataFrame(rows)
+
+
+def norm_issn(t):
+    s = re.sub(r"[^0-9Xx]", "", t).upper()
+    return f"{s[:4]}-{s[4:]}"
+
+
+meta, df = load()
+st.title("🎓 저널 출판 기간 & APC 지원 안내")
+if df.empty:
+    st.info("아직 수집된 데이터가 없습니다. GitHub Actions에서 수집을 먼저 실행해 주세요.")
+    st.stop()
+st.caption(f"업데이트 {meta.get('generated_at', '-')} · 저널 {meta.get('n_journals', 0):,}종")
+
+q = st.text_area("저널명 · 약어 · ISSN · 출판사 (여러 개는 쉼표/줄바꿈/세미콜론)", height=70, placeholder="예) 2190-572X, 2374-7943 · PLOS ONE; ACS Omega · Wiley")
+c1, c2, c3 = st.columns(3)
+only_apc = c1.checkbox("전남대 APC 지원 목록 일치만")
+max_days = c2.number_input("투고→승인 중앙값 N일 이내 (0=제한 없음)", 0, 2000, 0)
+min_days = c3.number_input("N일 미만 제외 (0=제한 없음)", 0, 365, 0)
+
+view, missing = df, []
+tokens = [t for t in re.split(r"[\s,;]+", q.strip()) if t]
+if tokens and all(ISSN_RE.match(t) for t in tokens):
+    keys = [norm_issn(t) for t in tokens]
+    view = df[df["ISSN"].isin(keys) | df["eISSN"].isin(keys)]
+    found = set(view["ISSN"]) | set(view["eISSN"])
+    missing = [k for k in keys if k not in found]
+elif q.strip():
+    parts = [p.strip().lower() for p in re.split(r"[,;\n]+", q) if p.strip()]
+    mask = pd.Series(False, index=df.index)
+    for p in parts:
+        mask |= (df["저널명"].str.lower().str.contains(p, regex=False)
+                 | df["약어"].str.lower().str.contains(p, regex=False)
+                 | df["출판사"].str.lower().str.contains(p, regex=False))
+    view = df[mask]
+if only_apc:
+    view = view[view["전남대 APC"].str.startswith("💡")]
+if max_days:
+    view = view[view["투고→승인 중앙값(일)"] <= max_days]
+if min_days:
+    view = view[view["투고→승인 중앙값(일)"] >= min_days]
+
+st.markdown(f"💡 **{len(view):,}개 저널**")
+for m in missing:
+    st.warning(f"⚠️ {m}은(는) 현재 출판 기간 데이터베이스에 등록되어 있지 않습니다.")
+st.dataframe(view.sort_values("투고→승인 중앙값(일)", na_position="last"), use_container_width=True, hide_index=True)
+st.info("출판 기간은 저널별 최근 논문들의 투고→승인 일수 중앙값입니다. APC 지원은 ISSN/정확한 저널명이 지원 목록과 "
+        "일치할 때만 표시합니다. 최신 지원 요건은 https://lib.jnu.ac.kr/webcontent/info/31 에서 확인하세요.")
+st.divider()
+st.caption("개발·운영 **나대식** · 전남대학교병원 의학도서실  \n"
+           "© 2026 나대식 (Na Dae-sik). All rights reserved. 저작권자의 사전 동의 없이 복제·배포·수정을 금합니다.  \n"
+           "원자료 출처: 미국 국립의학도서관(NLM) PubMed")
