@@ -1,9 +1,8 @@
-
 name: 저널 출판 기간 데이터 자동 업데이트
- 
+
 on:
   schedule:
-    # 매주 일요일 03:17 UTC (= 일요일 12:17 KST, 미국 동부 토요일 밤)
+    # 매주 토·일 13:43 UTC (= 한국 22:43). 예약 실행이 빠지는 경우를 대비해 주 2회
     # NCBI는 대량 작업을 주말 또는 미국 동부 밤 시간에 하도록 권장
     - cron: "43 13 * * 6,0"
   workflow_dispatch:        # Actions 탭에서 수동 실행 버튼
@@ -11,23 +10,20 @@ on:
       limit:
         description: "테스트용: 앞에서 N개 저널만 (0=전체)"
         default: "0"
- 
+
 permissions:
   contents: write           # 결과 JSON 커밋 + 캐시 릴리스 업로드
   pages: write              # GitHub Pages 배포
   id-token: write
- 
+
 concurrency:
   group: update-data
   cancel-in-progress: false
- 
+
 jobs:
   update:
     runs-on: ubuntu-latest
     timeout-minutes: 340
-    environment:
-      name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
     env:
       NCBI_API_KEY: ${{ secrets.NCBI_API_KEY }}
       NCBI_EMAIL: ${{ secrets.NCBI_EMAIL }}
@@ -37,32 +33,32 @@ jobs:
       HF_SPACE: ${{ secrets.HF_SPACE }}
     steps:
       - uses: actions/checkout@v4
- 
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
- 
+
       - run: pip install -r requirements.txt
- 
+
       # 논문 단위 캐시는 git 이력을 불리지 않도록 'data-cache' 릴리스 첨부파일로 보관
       - name: 이전 캐시 내려받기 (없으면 첫 실행 = 전체 수집)
         run: |
           mkdir -p data/cache
           gh release download data-cache -D data/cache --clobber || echo "캐시 없음 → 전체 수집"
- 
+
       - name: 수집 (PubMed)
         run: python -m pipeline.collect
- 
+
       - name: 집계 + 웹 데이터 생성
         run: python -m pipeline.aggregate
- 
+
       - name: 캐시 업로드
         run: |
           gh release view data-cache >/dev/null 2>&1 || \
             gh release create data-cache --title "data-cache (자동 생성, 삭제 금지)" --notes "수집 캐시"
           gh release upload data-cache data/cache/articles.csv.gz data/cache/journal_status.csv --clobber
- 
+
       # 결과 커밋 → GitHub Pages 자동 반영.
       # 매번 생성시각이 바뀌므로 항상 커밋이 생겨, '60일 무활동 시 예약 실행 중지' 규칙에도 걸리지 않음
       - name: 결과 커밋
@@ -72,15 +68,13 @@ jobs:
           git add docs/data/journals.json docs/data/journals.csv
           git commit -m "데이터 업데이트 $(date -u +%Y-%m-%d)" || echo "변경 없음"
           git push
- 
-      # Pages 배포 (Settings → Pages → Source: "GitHub Actions")
+
+      # Pages용 파일 묶음 만들기 (실제 배포는 아래 deploy 작업에서)
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
           path: docs
-      - id: deploy
-        uses: actions/deploy-pages@v4
- 
+
       # (선택) Hugging Face 정적 Space에도 같은 화면을 올림
       # Secrets에 HF_TOKEN(Write 권한), HF_SPACE(예: 아이디/journal-duration)를 넣었을 때만 실행
       # 실패해도 전체 작업은 실패로 처리하지 않음 (Pages 배포는 이미 끝난 뒤)
@@ -102,5 +96,14 @@ jobs:
                             commit_message="데이터 업데이트")
           print("완료")
           PY
- 
- 
+
+  # Pages 배포는 GitHub 권장대로 별도 작업으로 분리
+  deploy:
+    needs: update
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4
